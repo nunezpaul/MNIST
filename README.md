@@ -1,2 +1,4 @@
 # Mixture_of_Softmaxes_MNIST
-Implementation of Mixture of Softmaxes for MNIST digits dataset
+
+My implementation(s) of digit recognition from the MNIST dataset.
+This is repo is a more accurate representation of my coding ability after my first internship at Pinterest :)
