@@ -96,11 +96,6 @@ class TrainLoss(object):
         assert log_loss.shape == pos_probability.shape == ()
         assert prediction.shape[1:] == ()
         assert accuracy.shape == ()
-<<<<<<< HEAD
-=======
-
-        return log_loss, pos_probability, accuracy, prediction, lbl
->>>>>>> 1731180c9970d731adad3d5a7a44b4e3e42a1e4b
 
         return log_loss, pos_probability, accuracy, prediction, lbl
 
