@@ -5,7 +5,9 @@ This is repo is a more accurate representation of my coding ability after my fir
 
 ## Model Plans
 1. ~~embedding based basic model~~ (try something different) <br/>
- a. ~~Set up tensorboard logging~~ <br/>
+ a. ~~Set up tensorboard logging~~
+ 
 2. Noise-regularization (make the model more robust to random noise)
 
-3. Mixture-Model (This should not help but just for fun I'll implement)
+3. Mixture of Softmaxes (This shouldn't help but just for fun I'll implement) <br/>
+    (https://arxiv.org/pdf/1711.03953.pdf)
