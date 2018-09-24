@@ -9,8 +9,8 @@ class ModelParams(object):
         self.batch_size = 64
         self.embed_dim = 256
         self.num_classes = 10
-        self.lbl_embed = tf.Variable(tf.random_normal((self.num_classes, self.embed_dim)))
         self.id = uuid.uuid4()
+        self.name = 'basic_model'
         self.is_training = tf.placeholder_with_default(True, shape=())
 
     def embed(self, img):
@@ -25,7 +25,7 @@ class ModelParams(object):
         assert flattened.shape[1:] == self.img_size[0] * self.img_size[1]
         assert img_embed.shape[1:] == self.num_classes
 
-        return img_embed, layer_1_nl
+        return img_embed
 
 
 class DataConfig(object):
@@ -53,10 +53,16 @@ class DataConfig(object):
         self.next_element = iterator.get_next()
 
     def preprocess_data(self, data):
-        assert type(data) == tuple
+        # Converting data to usable data types
         img, lbl = data
         img = img.astype(np.float32) / 255.
         lbl = lbl.astype(np.int64)
+
+        # Checking for correct type and shape
+        assert type(data) == tuple
+        assert img.shape[1:] == (28, 28)
+        assert lbl.shape[1:] == ()
+
         return img, lbl
 
     def create_dataset(self, data, batch_size=None):
@@ -73,42 +79,47 @@ class TrainLoss(object):
         self.model_params = ModelParams()
 
     def eval(self):
-        # Loss will be on the negative log likelihood that the img embed belongs to the correct class of numbers
+        # Loss will be on the negative log likelihood that the img embed belongs to the correct class
         img, lbl = self.data_config.next_element
-        logits, layer_1 = self.get_logits(img)
+        logits = self.model_params.embed(img)
 
-        # Determine the loss and probability of positive sample
+        # Determine the log loss and probability of positive sample
         log_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=lbl))
         pos_probability = tf.exp(-log_loss)
-        assert log_loss.shape == pos_probability.shape == ()
 
         # Get the accuracy of prediction from logits compared to the label
         prediction = tf.argmax(logits, -1)
         accuracy = tf.reduce_mean(tf.to_float(tf.equal(prediction, lbl)))
 
-        return log_loss, pos_probability, accuracy, prediction, lbl
+        # Check that shapes are as expected
+        assert logits.shape[1:] == self.model_params.num_classes
+        assert log_loss.shape == pos_probability.shape == ()
+        assert prediction.shape[1:] == ()
+        assert accuracy.shape == ()
 
-    def get_logits(self, img):
-        img_embed, layer_1 = self.model_params.embed(img)
-        # logits = tf.matmul(img_embed, self.model_params.lbl_embed, transpose_b=True)
-        # assert logits.shape[1:] == self.model_params.num_classes
-        return img_embed, layer_1
+        return log_loss, pos_probability, accuracy, prediction, lbl
 
 
 class TrainRun(object):
     def __init__(self, sess, lr=0.001):
         self.train_loss = TrainLoss()
-        self.optimizer = tf.train.AdamOptimizer(learning_rate=lr)
-
-        id = self.train_loss.model_params.id
-        self.train_writer = tf.summary.FileWriter('./.test_MNIST/{name}/train'.format(name=id), tf.get_default_graph())
-        self.test_writer = tf.summary.FileWriter('./.test_MNIST/{name}/test'.format(name=id), tf.get_default_graph())
+        self.writer = {}
+        self.create_writers()
         self.tags = ['Log_Loss', 'Pos_Prob', 'Accuracy']
         self.eval_metrics = self.train_loss.eval()
         self.log_loss, self.pos_prob, self.accuracy, self.pred, self.lbl = self.eval_metrics
+        self.optimizer = tf.train.AdamOptimizer(learning_rate=lr)
         self.train_op = self.optimizer.minimize(self.log_loss)
         self.initialize(sess)
         self.step = 0
+
+    def create_writers(self):
+        phases = ['train', 'test']
+        id = self.train_loss.model_params.id
+        name = self.train_loss.model_params.name
+        for phase in phases:
+            tensorboard_dir = './.{name}/{id}/{phase}'.format(name=name, id=id, phase=phase)
+            self.writer[phase] = tf.summary.FileWriter(tensorboard_dir, tf.get_default_graph())
 
     def initialize(self, sess):
         print('Initializing Values: \n{init_vals}'.format(init_vals=sess.run(tf.report_uninitialized_variables())))
@@ -131,7 +142,7 @@ class TrainRun(object):
 
         # Write train metrics to tensorboard
         for tag, value in zip(self.tags, (train_loss, train_pos_prob, train_accuracy)):
-            self.tensorboard_logger(self.train_writer, tag=tag, value=value)
+            self.tensorboard_logger(self.writer['train'], tag=tag, value=value)
 
         # Switch to testing data and get metrics
         sess.run(self.train_loss.data_config.test_iter_init)
@@ -140,7 +151,7 @@ class TrainRun(object):
 
         # Write test metrics to tensorboard
         for tag, value in zip(self.tags, [test_loss, test_pos_prob, test_accuracy]):
-            self.tensorboard_logger(self.test_writer, tag=tag, value=value)
+            self.tensorboard_logger(self.writer['test'], tag=tag, value=value)
 
         # Print out eval metrics for comparison
         print('Train loss: {train:.3f} \t\t\t Test loss: {test:.3f}'.format(
