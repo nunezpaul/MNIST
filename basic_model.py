@@ -53,10 +53,16 @@ class DataConfig(object):
         self.next_element = iterator.get_next()
 
     def preprocess_data(self, data):
-        assert type(data) == tuple
+        # Converting data to usable data types
         img, lbl = data
         img = img.astype(np.float32) / 255.
         lbl = lbl.astype(np.int64)
+
+        # Checking for correct type and shape
+        assert type(data) == tuple
+        assert img.shape[1:] == (28, 28)
+        assert lbl.shape[1:] == ()
+
         return img, lbl
 
     def create_dataset(self, data, batch_size=None):
@@ -73,18 +79,23 @@ class TrainLoss(object):
         self.model_params = ModelParams()
 
     def eval(self):
-        # Loss will be on the negative log likelihood that the img embed belongs to the correct class of numbers
+        # Loss will be on the negative log likelihood that the img embed belongs to the correct class
         img, lbl = self.data_config.next_element
         logits, layer_1 = self.get_logits(img)
 
-        # Determine the loss and probability of positive sample
+        # Determine the log loss and probability of positive sample
         log_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=lbl))
         pos_probability = tf.exp(-log_loss)
-        assert log_loss.shape == pos_probability.shape == ()
 
         # Get the accuracy of prediction from logits compared to the label
         prediction = tf.argmax(logits, -1)
         accuracy = tf.reduce_mean(tf.to_float(tf.equal(prediction, lbl)))
+
+        # Check that shapes are as expected
+        assert logits.shape[1:] == self.model_params.num_classes
+        assert log_loss.shape == pos_probability.shape == ()
+        assert prediction.shape[1:] == ()
+        assert accuracy.shape == ()
 
         return log_loss, pos_probability, accuracy, prediction, lbl
 
