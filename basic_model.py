@@ -30,26 +30,24 @@ class ModelParams(object):
 
 class DataConfig(object):
     def __init__(self, batch_size=64):
-        self.init_op = []
         self.batch_size = batch_size
-        self.train_iter_init = None
-        self.test_iter_init = None
+        self.iter_init = None
         self.next_element = None
         self.create_data_init()
 
     def create_data_init(self):
+        keys = ['train', 'test']
+
         # Loading processed MNIST train and test data
-        train, test = [self.preprocess_data(data) for data in tf.keras.datasets.mnist.load_data()]
-        assert train[0].shape[1:] == test[0].shape[1:] == (28, 28)
+        data = dict(zip(keys, [self.preprocess_data(data) for data in tf.keras.datasets.mnist.load_data()]))
+        assert data['train'][0].shape[1:] == data['test'][0].shape[1:] == (28, 28)
 
         # Convert numpy data to tf.dataset
-        train_dataset = self.create_dataset(train, batch_size=self.batch_size)
-        test_dataset = self.create_dataset(test, batch_size=self.batch_size)
+        dataset = dict(zip(data.keys(), [self.create_dataset(data[key], self.batch_size) for key in keys]))
 
-        # Creating and saving iterator and data inits
-        iterator = tf.data.Iterator.from_structure(train_dataset.output_types, train_dataset.output_shapes)
-        self.train_iter_init = iterator.make_initializer(train_dataset, name='Train')
-        self.test_iter_init = iterator.make_initializer(test_dataset, name='Test')
+        # Creating iterator, data inits and next_element
+        iterator = tf.data.Iterator.from_structure(dataset['train'].output_types, dataset['train'].output_shapes)
+        self.iter_init = dict(zip(data.keys(), [iterator.make_initializer(dataset[key], name=key) for key in keys]))
         self.next_element = iterator.get_next()
 
     def preprocess_data(self, data):
@@ -79,25 +77,27 @@ class TrainLoss(object):
         self.model_params = ModelParams()
 
     def eval(self):
+        metrics = {}
+
         # Loss will be on the negative log likelihood that the img embed belongs to the correct class
         img, lbl = self.data_config.next_element
         logits = self.model_params.embed(img)
 
         # Determine the log loss and probability of positive sample
-        log_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=lbl))
-        pos_probability = tf.exp(-log_loss)
+        metrics['Log_loss'] = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=lbl))
+        metrics['Pos_prob'] = tf.exp(-metrics['Log_loss'])
 
         # Get the accuracy of prediction from logits compared to the label
         prediction = tf.argmax(logits, -1)
-        accuracy = tf.reduce_mean(tf.to_float(tf.equal(prediction, lbl)))
+        metrics['Accuracy'] = tf.reduce_mean(tf.to_float(tf.equal(prediction, lbl)))
 
         # Check that shapes are as expected
         assert logits.shape[1:] == self.model_params.num_classes
-        assert log_loss.shape == pos_probability.shape == ()
+        assert metrics['Log_loss'].shape == metrics['Pos_prob'].shape == ()
         assert prediction.shape[1:] == ()
-        assert accuracy.shape == ()
+        assert metrics['Accuracy'].shape == ()
 
-        return log_loss, pos_probability, accuracy, prediction, lbl
+        return metrics, prediction, lbl
 
 
 class TrainRun(object):
@@ -105,11 +105,11 @@ class TrainRun(object):
         self.train_loss = TrainLoss()
         self.writer = {}
         self.create_writers()
-        self.tags = ['Log_Loss', 'Pos_Prob', 'Accuracy']
         self.eval_metrics = self.train_loss.eval()
-        self.log_loss, self.pos_prob, self.accuracy, self.pred, self.lbl = self.eval_metrics
+        self.metrics, self.pred, self.lbl = self.eval_metrics
+        self.tags = self.metrics.keys()
         self.optimizer = tf.train.AdamOptimizer(learning_rate=lr)
-        self.train_op = self.optimizer.minimize(self.log_loss)
+        self.train_op = self.optimizer.minimize(self.metrics['Log_loss'])
         self.initialize(sess)
         self.step = 0
 
@@ -123,7 +123,7 @@ class TrainRun(object):
 
     def initialize(self, sess):
         print('Initializing Values: \n{init_vals}'.format(init_vals=sess.run(tf.report_uninitialized_variables())))
-        init_op = [tf.global_variables_initializer(), self.train_loss.data_config.train_iter_init]
+        init_op = [tf.global_variables_initializer(), self.train_loss.data_config.iter_init['train']]
         sess.run(init_op)
         print('Finished Initialization.')
 
@@ -137,36 +137,28 @@ class TrainRun(object):
 
     def report_metrics(self, sess):
         # Evaluate using training data here
-        train_loss, train_pos_prob, train_accuracy, train_pred, train_lbl = sess.run(
+        train_metrics, train_pred, train_lbl = sess.run(
             self.eval_metrics, feed_dict={self.train_loss.model_params.is_training: False})
-
-        # Write train metrics to tensorboard
-        for tag, value in zip(self.tags, (train_loss, train_pos_prob, train_accuracy)):
-            self.tensorboard_logger(self.writer['train'], tag=tag, value=value)
 
         # Switch to testing data and get metrics
-        sess.run(self.train_loss.data_config.test_iter_init)
-        test_loss, test_pos_prob, test_accuracy, test_pred, test_lbl = sess.run(
+        sess.run(self.train_loss.data_config.iter_init['test'])
+        test_metrics, test_pred, test_lbl = sess.run(
             self.eval_metrics, feed_dict={self.train_loss.model_params.is_training: False})
 
-        # Write test metrics to tensorboard
-        for tag, value in zip(self.tags, [test_loss, test_pos_prob, test_accuracy]):
-            self.tensorboard_logger(self.writer['test'], tag=tag, value=value)
+        # Write metrics to tensorboard
+        for tag in self.tags:
+            self.tensorboard_logger(self.writer['test'], tag=tag, value=test_metrics[tag])
+            self.tensorboard_logger(self.writer['train'], tag=tag, value=train_metrics[tag])
+            print('Train {tag}: {train:.3f} \t\t\t Test {tag}: {test:.3f}'.format(
+                tag=tag, train=train_metrics[tag], test=test_metrics[tag]))
 
-        # Print out eval metrics for comparison
-        print('Train loss: {train:.3f} \t\t\t Test loss: {test:.3f}'.format(
-            train=train_loss, test=test_loss))
-        print('Train Pos Prob: {train:.3f} \t\t\t Test Pos Prob: {test:.3f}'.format(
-            train=train_pos_prob, test=test_pos_prob))
-        print('Train Accuracy: {train:.3f} \t\t\t Test Accuracy: {test:.3f}'.format(
-            train=train_accuracy, test=test_accuracy))
         print('Train Predict {train} \t Test Predict {test}'.format(
             train=train_pred[:10], test=test_pred[:10]))
         print('Train Correct {train} \t Test Correct {test}'.format(
             train=train_lbl[:10], test=test_lbl[:10]))
 
         # Switch data back to training data
-        sess.run(self.train_loss.data_config.train_iter_init)
+        sess.run(self.train_loss.data_config.iter_init['train'])
 
     def tensorboard_logger(self, writer, tag, value):
         summary = tf.Summary(value=[tf.Summary.Value(tag=tag, simple_value=value)])
