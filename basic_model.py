@@ -1,6 +1,6 @@
+import numpy as np
 import tensorflow as tf
 import uuid
-import numpy as np
 
 
 class ModelParams(object):

@@ -1,7 +1,7 @@
 # MNIST Project Models
 
 This repo contains (a) quick implementation(s) of digit recognition from the MNIST dataset.
-This is repo is a more accurate representation of my coding ability after my first internship at Pinterest :)
+This is repo is a more accurate representation of my coding ability after my internship at Pinterest :)
 
 ## Model Plans
 1. ~~embedding based basic model~~ (try something different) <br/>
