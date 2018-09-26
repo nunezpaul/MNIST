@@ -1,4 +1,5 @@
 import numpy as np
+import os
 import tensorflow as tf
 import uuid
 
@@ -6,11 +7,11 @@ import uuid
 class ModelParams(object):
     def __init__(self):
         self.img_size = (28, 28)
-        self.batch_size = 64
         self.embed_dim = 256
         self.num_classes = 10
         self.id = uuid.uuid4()
-        self.name = 'basic_model'
+        self.name = 'basic'
+        self.model_dir = os.path.abspath(__file__).split(os.path.basename(__file__))[0]
         self.is_training = tf.placeholder_with_default(True, shape=())
 
     def embed(self, img):
@@ -29,7 +30,7 @@ class ModelParams(object):
 
 
 class DataConfig(object):
-    def __init__(self, batch_size=64):
+    def __init__(self, batch_size={'train': 64, 'test': 128}):
         self.batch_size = batch_size
         self.iter_init = None
         self.next_element = None
@@ -43,7 +44,7 @@ class DataConfig(object):
         assert data['train'][0].shape[1:] == data['test'][0].shape[1:] == (28, 28)
 
         # Convert numpy data to tf.dataset
-        dataset = dict(zip(keys, [self.create_dataset(data[key], self.batch_size) for key in keys]))
+        dataset = dict(zip(keys, [self.create_dataset(data[key], self.batch_size[key]) for key in keys]))
 
         # Creating iterator, data inits and next_element
         iterator = tf.data.Iterator.from_structure(dataset['train'].output_types, dataset['train'].output_shapes)
@@ -65,9 +66,9 @@ class DataConfig(object):
 
     def create_dataset(self, data, batch_size=None):
         dataset = tf.data.Dataset.from_tensor_slices(data)
-        dataset = dataset.repeat().shuffle(buffer_size=batch_size * 1000)
+        dataset = dataset.repeat().shuffle(buffer_size=batch_size * 10)
         dataset = dataset.batch(batch_size) if batch_size else dataset
-        dataset = dataset.prefetch(batch_size * 4) if batch_size else dataset
+        dataset = dataset.prefetch(batch_size * 10) if batch_size else dataset
         return dataset
 
 
@@ -85,40 +86,40 @@ class TrainLoss(object):
 
         # Determine the log loss and probability of positive sample
         metrics['Log_loss'] = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=lbl))
-        metrics['Pos_prob'] = tf.exp(-metrics['Log_loss'])
+        metrics['Neg_prob'] = 1 - tf.exp(-metrics['Log_loss'])
 
         # Get the accuracy of prediction from logits compared to the label
         prediction = tf.argmax(logits, -1)
-        metrics['Accuracy'] = tf.reduce_mean(tf.to_float(tf.equal(prediction, lbl)))
+        metrics['Inaccuracy'] = tf.reduce_mean(tf.to_float(tf.not_equal(prediction, lbl)))
 
         # Check that shapes are as expected
         assert logits.shape[1:] == self.model_params.num_classes
-        assert metrics['Log_loss'].shape == metrics['Pos_prob'].shape == ()
-        assert prediction.shape[1:] == ()
-        assert metrics['Accuracy'].shape == ()
+        assert prediction.shape[1:] == lbl.shape[1:]
+        assert metrics['Log_loss'].shape == ()
+        assert metrics['Neg_prob'].shape == ()
+        assert metrics['Inaccuracy'].shape == ()
 
         return metrics, prediction, lbl
 
 
 class TrainRun(object):
-    def __init__(self, sess, lr=0.001):
+    def __init__(self, lr=0.001):
         self.train_loss = TrainLoss()
         self.writer = {}
         self.create_writers()
         self.eval_metrics = self.train_loss.eval()
         self.metrics, self.pred, self.lbl = self.eval_metrics
-        self.tags = self.metrics.keys()
         self.optimizer = tf.train.AdamOptimizer(learning_rate=lr)
         self.train_op = self.optimizer.minimize(self.metrics['Log_loss'])
-        self.initialize(sess)
         self.step = 0
 
     def create_writers(self):
         phases = ['train', 'test']
+        base_dir = self.train_loss.model_params.model_dir
         id = self.train_loss.model_params.id
         name = self.train_loss.model_params.name
         for phase in phases:
-            tensorboard_dir = './.{name}/{id}/{phase}'.format(name=name, id=id, phase=phase)
+            tensorboard_dir = '{base_dir}.{name}/{id}/{phase}'.format(base_dir=base_dir, name=name, id=id, phase=phase)
             self.writer[phase] = tf.summary.FileWriter(tensorboard_dir, tf.get_default_graph())
 
     def initialize(self, sess):
@@ -127,7 +128,7 @@ class TrainRun(object):
         sess.run(init_op)
         print('Finished Initialization.')
 
-    def train_step(self, sess):
+    def train(self, sess):
         for step in range(60 * 10**3):
             _ = sess.run([self.train_op])
             self.step += 1
@@ -146,7 +147,7 @@ class TrainRun(object):
             self.eval_metrics, feed_dict={self.train_loss.model_params.is_training: False})
 
         # Write metrics to tensorboard
-        for tag in self.tags:
+        for tag in self.metrics.keys():
             self.tensorboard_logger(self.writer['test'], tag=tag, value=test_metrics[tag])
             self.tensorboard_logger(self.writer['train'], tag=tag, value=train_metrics[tag])
             print('Train {tag}: {train:.3f} \t\t\t Test {tag}: {test:.3f}'.format(
@@ -168,5 +169,6 @@ class TrainRun(object):
 
 if __name__ == '__main__':
     sess = tf.Session()
-    tr = TrainRun(sess)
-    tr.train_step(sess)
+    tr = TrainRun()
+    tr.initialize(sess)
+    tr.train(sess)
