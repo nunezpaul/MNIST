@@ -43,11 +43,11 @@ class DataConfig(object):
         assert data['train'][0].shape[1:] == data['test'][0].shape[1:] == (28, 28)
 
         # Convert numpy data to tf.dataset
-        dataset = dict(zip(data.keys(), [self.create_dataset(data[key], self.batch_size) for key in keys]))
+        dataset = dict(zip(keys, [self.create_dataset(data[key], self.batch_size) for key in keys]))
 
         # Creating iterator, data inits and next_element
         iterator = tf.data.Iterator.from_structure(dataset['train'].output_types, dataset['train'].output_shapes)
-        self.iter_init = dict(zip(data.keys(), [iterator.make_initializer(dataset[key], name=key) for key in keys]))
+        self.iter_init = dict(zip(keys, [iterator.make_initializer(dataset[key], name=key) for key in keys]))
         self.next_element = iterator.get_next()
 
     def preprocess_data(self, data):
