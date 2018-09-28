@@ -20,8 +20,10 @@ class ModelParams(ModelParams):
         # Determine the logits from using the basic model
         n_img_embeds = tf.stack([super(ModelParams, self).embed(proj_img) for proj_img in proj_imgs], axis=-1)
 
-        # Calculate component weighting for each sample
-        comp_weight = tf.matmul(flat, self.mixture_weight)
+        # Calculate component weighting for each sample (also known as gating function)
+        comp_logits = tf.matmul(flat, self.mixture_weight)
+        normalized_comp_logits = comp_logits - tf.expand_dims(tf.reduce_max(comp_logits, axis=-1), axis=-1)
+        comp_weight = tf.nn.softmax(normalized_comp_logits)
 
         # Combine img_embeds since they have gone through non-linear units
         img_embed = tf.einsum('bcn,bn->bc', n_img_embeds, comp_weight)
@@ -42,13 +44,12 @@ class TrainLoss(TrainLoss):
     def __init__(self):
         super(TrainLoss, self).__init__()
         self.model_params = ModelParams()
-        print(dir(self.model_params))
-        print(dir(self))
 
 
 class TrainRun(TrainRun):
     def __init__(self, lr=0.001):
         super(TrainRun, self).__init__(lr)
+        tf.reset_default_graph()
         self.train_loss = TrainLoss()
         self.writer = {}
         self.create_writers()
