@@ -127,9 +127,11 @@ class TrainRun(object):
             self.writer[phase] = tf.summary.FileWriter(tensorboard_dir, tf.get_default_graph())
 
     def initialize(self, sess):
-        print('Initializing Values: \n{init_vals}'.format(init_vals=sess.run(tf.report_uninitialized_variables())))
-        init_op = [tf.global_variables_initializer(), self.train_loss.data_config.iter_init['train']]
-        sess.run(init_op)
+        init_op = [tf.report_uninitialized_variables(),
+                   tf.global_variables_initializer(),
+                   self.train_loss.data_config.iter_init['train']]
+        init_vals, _, _ = sess.run(init_op)
+        print('Initializing Values: \n{init_vals}'.format(init_vals=init_vals))
         print('Finished Initialization.')
 
     def train(self, sess):
@@ -141,14 +143,17 @@ class TrainRun(object):
                 self.report_metrics(sess)
 
     def report_metrics(self, sess):
-        # Evaluate using training data here
-        train_metrics, train_pred, train_lbl = sess.run(
-            self.eval_metrics, feed_dict={self.train_loss.model_params.is_training: False})
+        # Evaluate using training data here and switch to testing data
+        train_store, _ = sess.run(
+            [self.eval_metrics, self.train_loss.data_config.iter_init['test']],
+        feed_dict={self.train_loss.model_params.is_training: False})
+        train_metrics, train_pred, train_lbl = train_store
 
-        # Switch to testing data and get metrics
-        sess.run(self.train_loss.data_config.iter_init['test'])
-        test_metrics, test_pred, test_lbl = sess.run(
-            self.eval_metrics, feed_dict={self.train_loss.model_params.is_training: False})
+        # Evaluate using testing data and switch to training data
+        test_store, _ = sess.run(
+            [self.eval_metrics, self.train_loss.data_config.iter_init['train']],
+            feed_dict={self.train_loss.model_params.is_training: False})
+        test_metrics, test_pred, test_lbl = test_store
 
         # Write metrics to tensorboard
         for tag in self.metrics.keys():
@@ -161,9 +166,6 @@ class TrainRun(object):
             train=train_pred[:10], test=test_pred[:10]))
         print('Train Correct {train} \t Test Correct {test}'.format(
             train=train_lbl[:10], test=test_lbl[:10]))
-
-        # Switch data back to training data
-        sess.run(self.train_loss.data_config.iter_init['train'])
 
     def tensorboard_logger(self, writer, tag, value):
         summary = tf.Summary(value=[tf.Summary.Value(tag=tag, simple_value=value)])
