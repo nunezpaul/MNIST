@@ -94,5 +94,4 @@ if __name__ == '__main__':
     tr = TrainRun()
     sess = tf.Session()
     tr.initialize(sess)
-    print(tr.train_loss.model_params.name)
     tr.train(sess)

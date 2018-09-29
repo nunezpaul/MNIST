@@ -1,6 +1,7 @@
 import numpy as np
-import os
 import tensorflow as tf
+
+import os
 import uuid
 
 
@@ -18,7 +19,7 @@ class ModelParams(object):
         self.dense1 = tf.layers.Dense(self.embed_dim, activation=tf.nn.relu, name='dense1')
         self.dense2 = tf.layers.Dense(self.num_classes, name='dense2')
 
-    def embed(self, img):
+    def embed(self, img, check_shapes=True):
         # Create an embedding based on given image
         flattened = tf.layers.flatten(img)
         layer_1 = self.dense1(flattened)
@@ -26,9 +27,10 @@ class ModelParams(object):
         img_embed = self.dense2(layer_1_nl)
 
         # Check that the shapes are as we would expect
-        assert img.shape[1:] == self.img_size
-        assert flattened.shape[1:] == self.img_size[0] * self.img_size[1]
-        assert img_embed.shape[1:] == self.num_classes
+        if check_shapes:
+            assert img.shape[1:] == self.img_size
+            assert flattened.shape[1:] == self.img_size[0] * self.img_size[1]
+            assert img_embed.shape[1:] == self.num_classes
 
         return img_embed
 

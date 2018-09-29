@@ -8,6 +8,8 @@ class ModelParams(ModelParams):
         super(ModelParams, self).__init__()
         self.name = 'autoencoder'
 
+        self.dense_decode = tf.layers.Dense(self.flat_size)
+
     def embed(self, img, noise_factor=0.8):
         # Adding noise to the img
         noise = tf.truncated_normal(shape=tf.shape(img), mean=0.0, stddev=0.5) * tf.to_float(self.is_training)
@@ -15,12 +17,12 @@ class ModelParams(ModelParams):
 
         # Create an embedding based on given image
         flattened = tf.layers.flatten(noisy_img)
-        layer_1 = tf.layers.dense(flattened, self.embed_dim, activation=tf.nn.relu)
+        layer_1 = self.dense1(flattened)
         bottle_neck = tf.layers.dropout(layer_1, 0.8, training=self.is_training)
-        img_embed = tf.layers.dense(bottle_neck, self.num_classes)
+        img_embed = self.dense2(bottle_neck)
 
         # Decoding layer
-        decode = tf.layers.dense(bottle_neck, flattened.shape.as_list()[1])
+        decode = self.dense_decode(bottle_neck)
 
         # Check that the shapes are as we would expect
         assert img.shape[1:] == self.img_size
