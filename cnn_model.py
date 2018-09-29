@@ -61,6 +61,9 @@ class TrainRun(TrainRun):
     def __init__(self, lr=0.001):
         super(TrainRun, self).__init__(lr)
         self.train_loss = TrainLoss()
+        self.eval_metrics = self.train_loss.eval()
+        self.metrics, self.pred, self.lbl = self.eval_metrics
+        self.train_op = self.optimizer.minimize(self.metrics['Log_loss'])
 
 
 if __name__ == '__main__':

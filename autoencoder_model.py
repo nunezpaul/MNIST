@@ -68,14 +68,11 @@ class TrainLoss(TrainLoss):
 class TrainRun(TrainRun):
     def __init__(self, lr=0.001):
         super(TrainRun, self).__init__(lr)
-        tf.reset_default_graph()
         self.train_loss = TrainLoss()
         self.eval_metrics = self.train_loss.eval()
         self.metrics, self.pred, self.lbl = self.eval_metrics
         self.metrics['Total_loss'] = self.metrics['Decode_loss'] + self.metrics['Log_loss']
         self.train_op = self.optimizer.minimize(self.metrics['Total_loss'])
-        self.create_writers()
-        self.step = 0
 
 
 if __name__ == '__main__':
