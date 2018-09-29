@@ -7,6 +7,7 @@ import uuid
 class ModelParams(object):
     def __init__(self):
         self.img_size = (28, 28)
+        self.flat_size = self.img_size[0] * self.img_size[1]
         self.embed_dim = 256
         self.num_classes = 10
         self.id = uuid.uuid4()
@@ -14,12 +15,15 @@ class ModelParams(object):
         self.model_dir = os.path.abspath(__file__).split(os.path.basename(__file__))[0]
         self.is_training = tf.placeholder_with_default(True, shape=())
 
+        self.dense1 = tf.layers.Dense(self.embed_dim, activation=tf.nn.relu, name='dense1')
+        self.dense2 = tf.layers.Dense(self.num_classes, name='dense2')
+
     def embed(self, img):
         # Create an embedding based on given image
         flattened = tf.layers.flatten(img)
-        layer_1 = tf.layers.dense(flattened, self.embed_dim, activation=tf.nn.relu)
+        layer_1 = self.dense1(flattened)
         layer_1_nl = tf.layers.dropout(layer_1, 0.8, training=self.is_training)
-        img_embed = tf.layers.dense(layer_1_nl, self.num_classes)
+        img_embed = self.dense2(layer_1_nl)
 
         # Check that the shapes are as we would expect
         assert img.shape[1:] == self.img_size
