@@ -82,7 +82,6 @@ class TrainRun(TrainRun):
         tf.reset_default_graph()
         self.train_loss = TrainLoss()
         self.writer = {}
-        self.create_writers()
         self.eval_metrics = self.train_loss.eval()
         self.metrics, self.pred, self.lbl = self.eval_metrics
         self.optimizer = tf.train.AdamOptimizer(learning_rate=lr)

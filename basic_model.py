@@ -112,7 +112,6 @@ class TrainRun(object):
     def __init__(self, lr=0.001):
         self.train_loss = TrainLoss()
         self.writer = {}
-        self.create_writers()
         self.eval_metrics = self.train_loss.eval()
         self.metrics, self.pred, self.lbl = self.eval_metrics
         self.optimizer = tf.train.AdamOptimizer(learning_rate=lr)
@@ -129,6 +128,7 @@ class TrainRun(object):
             self.writer[phase] = tf.summary.FileWriter(tensorboard_dir, tf.get_default_graph())
 
     def initialize(self, sess):
+        self.create_writers()
         init_op = [tf.report_uninitialized_variables(),
                    tf.global_variables_initializer(),
                    self.train_loss.data_config.iter_init['train']]
