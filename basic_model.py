@@ -36,7 +36,7 @@ class ModelParams(object):
 
 
 class DataConfig(object):
-    def __init__(self, batch_size={'train': 64, 'test': 128}):
+    def __init__(self, batch_size={'train': 64, 'test': 1024}):
         self.batch_size = batch_size
         self.iter_init = None
         self.next_element = None
