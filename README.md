@@ -15,8 +15,6 @@ multi-task learning)
     
 4. ~~CNN~~ (Very typical to be used for this problem)
 
-5. CNN + Mixture of Softmaxes
-
 
 ## Overview
 This repo contains a few models used to classify hand-written digits from the MNIST dataset as well as their performance
@@ -34,4 +32,3 @@ python3 path/to/desired/model.py
 
 ## Future Plans
 1. Saving checkpoints so that models can be trained and retrained
-2. Oversampling/undersampling digits from the dataset since they are uneven

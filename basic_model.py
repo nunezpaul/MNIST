@@ -128,6 +128,7 @@ class TrainRun(object):
             self.writer[phase] = tf.summary.FileWriter(tensorboard_dir, tf.get_default_graph())
 
     def initialize(self, sess):
+        self.count_number_trainable_parameteres()
         self.create_writers()
         init_op = [tf.report_uninitialized_variables(),
                    tf.global_variables_initializer(),
@@ -173,6 +174,19 @@ class TrainRun(object):
         summary = tf.Summary(value=[tf.Summary.Value(tag=tag, simple_value=value)])
         writer.add_summary(summary, self.step)
         writer.flush()
+
+    def count_number_trainable_parameteres(self):
+        total_parameters = 0
+        for variable in tf.trainable_variables():
+            # shape is an array of tf.Dimension
+            shape = variable.get_shape()
+            print(variable)
+            variable_parameters = 1
+            for dim in shape:
+                variable_parameters *= dim.value
+            print(variable_parameters)
+            total_parameters += variable_parameters
+        print(total_parameters)
 
 
 if __name__ == '__main__':
