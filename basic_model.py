@@ -19,7 +19,7 @@ class ModelParams(object):
         self.dense1 = tf.layers.Dense(self.embed_dim, activation=tf.nn.relu, name='dense1')
         self.dense2 = tf.layers.Dense(self.num_classes, name='dense2')
 
-    def embed(self, img, check_shapes=True):
+    def get_logits(self, img, check_shapes=True):
         # Create an embedding based on given image
         flattened = tf.layers.flatten(img)
         layer_1 = self.dense1(flattened)
@@ -88,7 +88,7 @@ class TrainLoss(object):
 
         # Loss will be on the negative log likelihood that the img embed belongs to the correct class
         img, lbl = self.data_config.next_element
-        logits = self.model_params.embed(img)
+        logits = self.model_params.get_logits(img)
 
         # Determine the log loss and probability of positive sample
         metrics['Log_loss'] = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=lbl))
