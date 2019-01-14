@@ -9,9 +9,9 @@ class ModelParams(ModelParams):
         self.name = 'CNN'
         self.filter1 = 32
         self.filter2 = 64
-        self.kernel_size = (5,5)
-        self.pool_size=(2,2)
-        self.pool_strides=2
+        self.kernel_size = (5, 5)
+        self.pool_size = (2, 2)
+        self.pool_strides = 2
         self.img_size = list(self.img_size)
 
     def embed(self, img):
