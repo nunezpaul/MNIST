@@ -1,6 +1,6 @@
 import tensorflow as tf
 
-from basic_model import ModelParams, DataConfig, TrainLoss, TrainRun
+from basic_model import ModelParams, TrainLoss, TrainRun
 
 
 class ModelParams(ModelParams):

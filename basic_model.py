@@ -1,11 +1,15 @@
-import numpy as np
 import tensorflow as tf
 
 import os
 import uuid
 
+from data_config import TestData, TrainData
 
-class ModelParams(object):
+
+class BasicModel(object):
+    def __call__(self, img, *args, **kwargs):
+        return self._forward(img)
+
     def __init__(self):
         self.img_size = (28, 28)
         self.flat_size = self.img_size[0] * self.img_size[1]
@@ -19,7 +23,7 @@ class ModelParams(object):
         self.dense1 = tf.layers.Dense(self.embed_dim, activation=tf.nn.relu, name='dense1')
         self.dense2 = tf.layers.Dense(self.num_classes, name='dense2')
 
-    def get_logits(self, img, check_shapes=True):
+    def _forward(self, img, check_shapes=True):
         # Create an embedding based on given image
         flattened = tf.layers.flatten(img)
         layer_1 = self.dense1(flattened)
@@ -35,147 +39,102 @@ class ModelParams(object):
         return img_embed
 
 
-class DataConfig(object):
-    def __init__(self, batch_size={'train': 64, 'test': 1024}):
-        self.batch_size = batch_size
-        self.iter_init = None
-        self.next_element = None
-        self.create_data_init()
-
-    def create_data_init(self):
-        keys = ['train', 'test']
-
-        # Loading processed MNIST train and test data
-        data = dict(zip(keys, [self.preprocess_data(data) for data in tf.keras.datasets.mnist.load_data()]))
-        assert data['train'][0].shape[1:] == data['test'][0].shape[1:] == (28, 28)
-
-        # Convert numpy data to tf.dataset
-        dataset = dict(zip(keys, [self.create_dataset(data[key], self.batch_size[key]) for key in keys]))
-
-        # Creating iterator, data inits and next_element
-        iterator = tf.data.Iterator.from_structure(dataset['train'].output_types, dataset['train'].output_shapes)
-        self.iter_init = dict(zip(keys, [iterator.make_initializer(dataset[key], name=key) for key in keys]))
-        self.next_element = iterator.get_next()
-
-    def preprocess_data(self, data):
-        # Converting data to usable data types
-        img, lbl = data
-        img = img.astype(np.float32) / 255.
-        lbl = lbl.astype(np.int64)
-
-        # Checking for correct type and shape
-        assert type(data) == tuple
-        assert img.shape[1:] == (28, 28)
-        assert lbl.shape[1:] == ()
-
-        return img, lbl
-
-    def create_dataset(self, data, batch_size=None):
-        dataset = tf.data.Dataset.from_tensor_slices(data)
-        dataset = dataset.repeat().shuffle(buffer_size=batch_size * 10)
-        dataset = dataset.batch(batch_size) if batch_size else dataset
-        dataset = dataset.prefetch(batch_size * 10) if batch_size else dataset
-        return dataset
-
-
 class TrainLoss(object):
-    def __init__(self):
-        self.data_config = DataConfig()
-        self.model_params = ModelParams()
+    def __init__(self, model, train_data, test_data=None):
+        self.data_init = [train_data.iter_init]
+        self.model = model
+        self.train_outputs = self.eval(train_data)
+        if test_data:
+            self.data_init.append(test_data.iter_init)
+            self.test_outputs = self.eval(test_data)
 
-    def eval(self):
+    def eval(self, data):
         metrics = {}
 
         # Loss will be on the negative log likelihood that the img embed belongs to the correct class
-        img, lbl = self.data_config.next_element
-        logits = self.model_params.get_logits(img)
+        img, label = data.img, data.label
+        logits = self.model(img)
 
         # Determine the log loss and probability of positive sample
-        metrics['Log_loss'] = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=lbl))
+        loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=label))
+        metrics['Log_loss'] = loss
         metrics['Neg_prob'] = 1 - tf.exp(-metrics['Log_loss'])
 
         # Get the accuracy of prediction from logits compared to the label
         prediction = tf.argmax(logits, -1)
-        metrics['Inaccuracy'] = tf.reduce_mean(tf.to_float(tf.not_equal(prediction, lbl)))
+        metrics['Inaccuracy'] = tf.reduce_mean(tf.to_float(tf.not_equal(prediction, label)))
 
         # Check that shapes are as expected
-        assert logits.shape[1:] == self.model_params.num_classes
-        assert prediction.shape[1:] == lbl.shape[1:]
+        assert logits.shape[1:] == self.model.num_classes
+        assert prediction.shape[1:] == label.shape[1:]
         assert metrics['Log_loss'].shape == ()
         assert metrics['Neg_prob'].shape == ()
         assert metrics['Inaccuracy'].shape == ()
 
-        return metrics, prediction, lbl
+        return {'loss': loss, 'metrics': metrics, 'prediction': prediction, 'label': label}
 
 
 class TrainRun(object):
-    def __init__(self, lr=0.001):
-        self.train_loss = TrainLoss()
+    def __init__(self, model, lr=0.001):
+        self.train_loss = TrainLoss(model=model, train_data=TrainData(), test_data=TestData())
         self.writer = {}
-        self.eval_metrics = self.train_loss.eval()
-        self.metrics, self.pred, self.lbl = self.eval_metrics
         self.optimizer = tf.train.AdamOptimizer(learning_rate=lr)
-        self.train_op = self.optimizer.minimize(self.metrics['Log_loss'])
+        self.train_op = self.optimizer.minimize(self.train_loss.train_outputs['loss'])
         self.step = 0
+        self.epochs = 0
 
     def create_writers(self):
         phases = ['train', 'test']
-        base_dir = self.train_loss.model_params.model_dir
-        id = self.train_loss.model_params.id
-        name = self.train_loss.model_params.name
+        base_dir = self.train_loss.model.model_dir
+        id = self.train_loss.model.id
+        name = self.train_loss.model.name
         for phase in phases:
-            tensorboard_dir = '{base_dir}.{name}/{id}/{phase}'.format(base_dir=base_dir, name=name, id=id, phase=phase)
+            tensorboard_dir = f'{base_dir}.{name}/{id}/{phase}'
             self.writer[phase] = tf.summary.FileWriter(tensorboard_dir, tf.get_default_graph())
 
     def initialize(self, sess):
-        self.count_number_trainable_parameteres()
+        self.count_number_trainable_parameters()
         self.create_writers()
+        print('Initializing...')
         init_op = [tf.report_uninitialized_variables(),
-                   tf.global_variables_initializer(),
-                   self.train_loss.data_config.iter_init['train']]
-        init_vals, _, _ = sess.run(init_op)
+                   tf.global_variables_initializer()] + self.train_loss.data_init
+        output = sess.run(init_op)
+        init_vals = output[0]
         print('Initializing Values: \n{init_vals}'.format(init_vals=init_vals))
-        print('Finished Initialization.')
+        print('Finished Initialization!')
 
     def train(self, sess):
         for step in range(60 * 10**3):
             _ = sess.run([self.train_op])
             self.step += 1
-            if step % 10**3 == 0:
-                print('Evaluating metrics...')
+            if step % (60 * 10 ** 3 // 64) == 0:
+                self.epochs += 1
+                print(f'Evaluating metrics at epoch {self.epochs}...')
                 self.report_metrics(sess)
 
     def report_metrics(self, sess):
         # Evaluate using training data here and switch to testing data
-        train_store, _ = sess.run(
-            [self.eval_metrics, self.train_loss.data_config.iter_init['test']],
-        feed_dict={self.train_loss.model_params.is_training: False})
-        train_metrics, train_pred, train_lbl = train_store
-
-        # Evaluate using testing data and switch to training data
-        test_store, _ = sess.run(
-            [self.eval_metrics, self.train_loss.data_config.iter_init['train']],
-            feed_dict={self.train_loss.model_params.is_training: False})
-        test_metrics, test_pred, test_lbl = test_store
+        train_outputs, test_outputs = sess.run([self.train_loss.train_outputs, self.train_loss.test_outputs],
+                                               feed_dict={self.train_loss.model.is_training: False})
 
         # Write metrics to tensorboard
-        for tag in self.metrics.keys():
-            self.tensorboard_logger(self.writer['test'], tag=tag, value=test_metrics[tag])
-            self.tensorboard_logger(self.writer['train'], tag=tag, value=train_metrics[tag])
+        for key in train_outputs['metrics'].keys():
+            self.tensorboard_logger(self.writer['test'], tag=key, value=test_outputs['metrics'][key])
+            self.tensorboard_logger(self.writer['train'], tag=key, value=train_outputs['metrics'][key])
             print('Train {tag}: {train:.3f} \t\t\t Test {tag}: {test:.3f}'.format(
-                tag=tag, train=train_metrics[tag], test=test_metrics[tag]))
+                tag=key, train=train_outputs['metrics'][key], test=test_outputs['metrics'][key]))
 
         print('Train Predict {train} \t Test Predict {test}'.format(
-            train=train_pred[:10], test=test_pred[:10]))
+            train=train_outputs['prediction'][:10], test=test_outputs['prediction'][:10]))
         print('Train Correct {train} \t Test Correct {test}'.format(
-            train=train_lbl[:10], test=test_lbl[:10]))
+            train=train_outputs['label'][:10], test=test_outputs['label'][:10]))
 
     def tensorboard_logger(self, writer, tag, value):
         summary = tf.Summary(value=[tf.Summary.Value(tag=tag, simple_value=value)])
         writer.add_summary(summary, self.step)
         writer.flush()
 
-    def count_number_trainable_parameteres(self):
+    def count_number_trainable_parameters(self):
         total_parameters = 0
         for variable in tf.trainable_variables():
             # shape is an array of tf.Dimension
@@ -190,7 +149,8 @@ class TrainRun(object):
 
 
 if __name__ == '__main__':
-    sess = tf.Session()
-    tr = TrainRun()
-    tr.initialize(sess)
-    tr.train(sess)
+    with tf.Session() as sess:
+        model = BasicModel()
+        tr = TrainRun(model=model)
+        tr.initialize(sess)
+        tr.train(sess)
