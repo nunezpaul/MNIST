@@ -106,3 +106,4 @@ venv.bak/
 # custom
 .basic
 .CNN
+saved_models

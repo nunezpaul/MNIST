@@ -3,6 +3,7 @@ import tensorflow as tf
 import os
 import uuid
 
+from config import Config
 from data_config import TestData, TrainData
 
 
@@ -75,13 +76,15 @@ class TrainLoss(object):
 
 
 class TrainRun(object):
-    def __init__(self, model, lr=0.001):
+    def __init__(self, model, sess, load_dir, lr=0.001):
         self.train_loss = TrainLoss(model=model, train_data=TrainData(), test_data=TestData())
-        self.writer = {}
         self.optimizer = tf.train.AdamOptimizer(learning_rate=lr)
         self.train_op = self.optimizer.minimize(self.train_loss.train_outputs['loss'])
+        self.saver = tf.train.Saver()
+        self.writer = {}
         self.step = 0
         self.epochs = 0
+        self.initialize(sess, load_dir)
 
     def create_writers(self):
         phases = ['train', 'test']
@@ -92,25 +95,33 @@ class TrainRun(object):
             tensorboard_dir = f'{base_dir}.{name}/{id}/{phase}'
             self.writer[phase] = tf.summary.FileWriter(tensorboard_dir, tf.get_default_graph())
 
-    def initialize(self, sess):
+    def initialize(self, sess, load_dir=None):
         self.count_number_trainable_parameters()
         self.create_writers()
         print('Initializing...')
-        init_op = [tf.report_uninitialized_variables(),
-                   tf.global_variables_initializer()] + self.train_loss.data_init
+        init_op = self.train_loss.data_init + [tf.report_uninitialized_variables()]
+        init_op += [] if load_dir else [tf.global_variables_initializer()]
+        if load_dir:
+            print('Reloading model...')
+            self.saver.restore(sess, load_dir)
+            print('Model restored!')
         output = sess.run(init_op)
-        init_vals = output[0]
-        print('Initializing Values: \n{init_vals}'.format(init_vals=init_vals))
-        print('Finished Initialization!')
+        init_vals = output[-1]
+        print('Initialized Values: \n{init_vals}'.format(init_vals=init_vals))
 
-    def train(self, sess):
-        for step in range(60 * 10**3):
-            _ = sess.run([self.train_op])
-            self.step += 1
-            if step % (60 * 10 ** 3 // 64) == 0:
-                self.epochs += 1
-                print(f'Evaluating metrics at epoch {self.epochs}...')
-                self.report_metrics(sess)
+    def train(self, sess, save_dir='saved_models'):
+        try:
+            for step in range(60 * 10**3):
+                _ = sess.run([self.train_op])
+                self.step += 1
+                if step % (60 * 10 ** 3 // 64) == 0:
+                    self.epochs += 1
+                    print(f'Evaluating metrics at epoch {self.epochs}...')
+                    self.report_metrics(sess)
+        except KeyboardInterrupt:
+            print('Saving graph params!')
+            self.saver.save(sess, f"{save_dir}/{self.train_loss.model.name}_model_epoch_{self.epochs}.ckpt")
+            print('Saved!')
 
     def report_metrics(self, sess):
         # Evaluate using training data here and switch to testing data
@@ -149,8 +160,8 @@ class TrainRun(object):
 
 
 if __name__ == '__main__':
+    config = Config()
     with tf.Session() as sess:
         model = BasicModel()
-        tr = TrainRun(model=model)
-        tr.initialize(sess)
-        tr.train(sess)
+        tr = TrainRun(model=model, sess=sess, load_dir=config.params['load_dir'], lr=config.params['lr'])
+        tr.train(sess, save_dir=config.params['save_dir'])
