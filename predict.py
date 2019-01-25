@@ -44,8 +44,9 @@ def plot_results(imgs, predictions):
 
 
 if __name__ == '__main__':
-    num = 3
-    sess, graph = import_graph(f'saved_models/basic_model_epoch_{num}')
+    num = 7
+    model = 'CNN'
+    sess, graph = import_graph(f'saved_models/{model}_model_epoch_{num}')
     get_all_collection_keys(graph=graph)
     test_imgs, test_labels = get_test_data()
 

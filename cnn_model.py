@@ -1,11 +1,12 @@
 import tensorflow as tf
 
-from basic_model import ModelParams, TrainLoss, TrainRun
+from basic_model import BasicModel, TrainLoss, TrainRun
+from config import Config
 
 
-class ModelParams(ModelParams):
+class CNNModel(BasicModel):
     def __init__(self):
-        super(ModelParams, self).__init__()
+        super(CNNModel, self).__init__()
         self.name = 'CNN'
         self.filter1 = 32
         self.filter2 = 64
@@ -14,7 +15,7 @@ class ModelParams(ModelParams):
         self.pool_strides = 2
         self.img_size = list(self.img_size)
 
-    def embed(self, img):
+    def _forward(self, img):
         # Reshape the image to include a channel
         img_expanded = tf.expand_dims(img, axis=-1)
 
@@ -37,7 +38,7 @@ class ModelParams(ModelParams):
         pool2 = tf.layers.max_pooling2d(conv2, pool_size=self.pool_size, strides=self.pool_strides)
 
         # Give pool2 to original embedding function of basic_model
-        img_embed = super(ModelParams, self).embed(img=pool2, check_shapes=False)
+        img_embed = super(CNNModel, self)._forward(img=pool2, check_shapes=False)
 
         # Check that the shapes are as we would expect
         assert img.shape[1:] == self.img_size
@@ -52,22 +53,19 @@ class ModelParams(ModelParams):
 
 
 class TrainLoss(TrainLoss):
-    def __init__(self):
-        super(TrainLoss, self).__init__()
-        self.model_params = ModelParams()
+    def __init__(self, model, train_data, test_data=None):
+        super(TrainLoss, self).__init__(model, train_data, test_data=test_data)
+        self.model_params = CNNModel()
 
 
 class TrainRun(TrainRun):
-    def __init__(self, lr=0.001):
-        super(TrainRun, self).__init__(lr)
-        self.train_loss = TrainLoss()
-        self.eval_metrics = self.train_loss.eval()
-        self.metrics, self.pred, self.lbl = self.eval_metrics
-        self.train_op = self.optimizer.minimize(self.metrics['Log_loss'])
+    def __init__(self, model, sess, load_dir, lr=0.001):
+        super(TrainRun, self).__init__(model, sess, load_dir, lr)
 
 
 if __name__ == '__main__':
-    tr = TrainRun()
-    sess = tf.Session()
-    tr.initialize(sess)
-    tr.train(sess)
+    config = Config()
+    with tf.Session() as sess:
+        model = CNNModel()
+        tr = TrainRun(model=model, sess=sess, load_dir=config.params['load_dir'], lr=config.params['lr'])
+        tr.train(sess, save_dir=config.params['save_dir'])
