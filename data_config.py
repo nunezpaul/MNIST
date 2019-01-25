@@ -7,13 +7,15 @@ class DataBase(object):
     def __init__(self, training=False, batch_size=64):
         train, test = tf.keras.datasets.mnist.load_data()
         data = train if training else test
-        self.img, self.label, self.iter_init = self.get_imgs_and_labels(data, batch_size)
+        self.img, self.label, self.iter, self.iter_init = self.get_imgs_and_labels(data, batch_size, training)
+        tf.add_to_collection("Iterator_init", self.iter_init)
 
-    def get_imgs_and_labels(self, data, batch_size):
+    def get_imgs_and_labels(self, data, batch_size, training):
         # Convert numpy data to tf.dataset
-        dataset = self.create_dataset(data, batch_size)
-        iterator = dataset.make_initializable_iterator()
-        return list(iterator.get_next()) + [iterator.initializer]
+        with tf.name_scope('train_dataset' if training else 'test_dataset') as scope:
+            dataset = self.create_dataset(data, batch_size)
+            iterator = dataset.make_initializable_iterator()
+        return list(iterator.get_next()) + [iterator, iterator.initializer]
 
     def create_dataset(self, data, batch_size):
         dataset = tf.data.Dataset.from_tensor_slices(data)
@@ -24,10 +26,17 @@ class DataBase(object):
         return dataset
 
     def _parse_function(self, img, label):
-        img = tf.to_float(img) / 255.
-        label = tf.to_int64(label)
+        img = self._img_preprocessing(img)
+        label = self._label_preprocessing(label)
         return img, label
 
+    def _img_preprocessing(self, img):
+        pp_img = tf.to_float(img) / 255.
+        return pp_img
+
+    def _label_preprocessing(self, label):
+        pp_label = tf.to_int64(label, name='label')
+        return pp_label
 
 class TrainData(DataBase):
     def __init__(self, batch_size=64):
@@ -62,5 +71,3 @@ if __name__ == '__main__':
         sess.run(test_data.iter_init)
         img, label = sess.run([test_data.img, test_data.label])
         print(img.shape, label.shape)
-
-        output = sess.run([test1], feed_dict={test: train_data.img})

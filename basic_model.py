@@ -3,6 +3,8 @@ import tensorflow as tf
 import os
 import uuid
 
+from multiprocessing import cpu_count
+
 from config import Config
 from data_config import TestData, TrainData
 
@@ -26,10 +28,11 @@ class BasicModel(object):
 
     def _forward(self, img, check_shapes=True):
         # Create an embedding based on given image
-        flattened = tf.layers.flatten(img)
-        layer_1 = self.dense1(flattened)
-        layer_1_nl = tf.layers.dropout(layer_1, 0.8, training=self.is_training)
-        img_embed = self.dense2(layer_1_nl)
+        with tf.name_scope('model') as scope:
+            flattened = tf.layers.flatten(img)
+            layer_1 = self.dense1(flattened)
+            layer_1_nl = tf.layers.dropout(layer_1, 0.8, training=self.is_training)
+            img_embed = self.dense2(layer_1_nl)
 
         # Check that the shapes are as we would expect
         if check_shapes:
@@ -42,18 +45,29 @@ class BasicModel(object):
 
 class TrainLoss(object):
     def __init__(self, model, train_data, test_data=None):
-        self.data_init = [train_data.iter_init]
+        self.data_init = [train_data.iter_init, test_data.iter_init]
         self.model = model
-        self.train_outputs = self.eval(train_data)
-        if test_data:
-            self.data_init.append(test_data.iter_init)
-            self.test_outputs = self.eval(test_data)
+        self.use_train_data = tf.placeholder_with_default(True, shape=(), name='use_train_data')
+        self.use_placeholder = tf.placeholder_with_default(False, shape=(), name='use_placeholder')
+        self.outputs = self.eval(train_data, test_data)
+        tf.add_to_collection('Placeholder_switch', self.use_placeholder)
 
-    def eval(self, data):
+    def eval(self, train_data, test_data):
         metrics = {}
+        img_ph, label_ph = self.create_placeholders(train_data)
+
+        # Overwrite is_training in order to switch where the data is coming from
+        if test_data is not None:
+            img, label = tf.cond(self.use_placeholder,
+                                 lambda: [img_ph, label_ph],
+                                 lambda: self.use_datasets(train_data, test_data))
+        else:
+            img, label = tf.cond(self.use_placeholder,
+                                 lambda: [img_ph, label_ph],
+                                 lambda: [train_data.img, train_data.label])
 
         # Loss will be on the negative log likelihood that the img embed belongs to the correct class
-        img, label = data.img, data.label
+        # img, label = data.img, data.label
         logits = self.model(img)
 
         # Determine the log loss and probability of positive sample
@@ -62,7 +76,7 @@ class TrainLoss(object):
         metrics['Neg_prob'] = 1 - tf.exp(-metrics['Log_loss'])
 
         # Get the accuracy of prediction from logits compared to the label
-        prediction = tf.argmax(logits, -1)
+        prediction = tf.argmax(logits, -1, name='prediction')
         metrics['Inaccuracy'] = tf.reduce_mean(tf.to_float(tf.not_equal(prediction, label)))
 
         # Check that shapes are as expected
@@ -74,12 +88,32 @@ class TrainLoss(object):
 
         return {'loss': loss, 'metrics': metrics, 'prediction': prediction, 'label': label}
 
+    def use_datasets(self, train_data, test_data):
+        img, label = tf.cond(self.use_train_data,
+                             lambda: [train_data.img, train_data.label],
+                             lambda: [test_data.img, test_data.label])
+        return [img, label]
+
+    def create_placeholders(self, dataset):
+        img_ph = tf.placeholder_with_default(tf.cast(tf.random_uniform(shape=[64, 28, 28], maxval=255), tf.uint8),
+                                             name='img_input', shape=[None, 28, 28])
+        label_ph = tf.placeholder_with_default(tf.cast(tf.random_uniform(shape=[64, ], maxval=255), tf.uint8),
+                                               name='label_input', shape=[None, ])
+
+        tf.add_to_collection(name='Inputs', value=img_ph)
+        tf.add_to_collection(name='Inputs', value=label_ph)
+
+        img_ph = dataset._img_preprocessing(img_ph)
+        label_ph = dataset._label_preprocessing(label_ph)
+
+        return [img_ph, label_ph]
+
 
 class TrainRun(object):
     def __init__(self, model, sess, load_dir, lr=0.001):
         self.train_loss = TrainLoss(model=model, train_data=TrainData(), test_data=TestData())
         self.optimizer = tf.train.AdamOptimizer(learning_rate=lr)
-        self.train_op = self.optimizer.minimize(self.train_loss.train_outputs['loss'])
+        self.train_op = self.optimizer.minimize(self.train_loss.outputs['loss'])
         self.saver = tf.train.Saver()
         self.writer = {}
         self.step = 0
@@ -125,9 +159,11 @@ class TrainRun(object):
 
     def report_metrics(self, sess):
         # Evaluate using training data here and switch to testing data
-        train_outputs, test_outputs = sess.run([self.train_loss.train_outputs, self.train_loss.test_outputs],
-                                               feed_dict={self.train_loss.model.is_training: False})
-
+        train_outputs = sess.run(self.train_loss.outputs,
+                                 feed_dict={self.train_loss.model.is_training: False})
+        test_outputs = sess.run(self.train_loss.outputs,
+                                feed_dict={self.train_loss.model.is_training: False,
+                                           self.train_loss.use_train_data: False})
         # Write metrics to tensorboard
         for key in train_outputs['metrics'].keys():
             self.tensorboard_logger(self.writer['test'], tag=key, value=test_outputs['metrics'][key])
@@ -150,11 +186,10 @@ class TrainRun(object):
         for variable in tf.trainable_variables():
             # shape is an array of tf.Dimension
             shape = variable.get_shape()
-            print(variable)
             variable_parameters = 1
             for dim in shape:
                 variable_parameters *= dim.value
-            print(variable_parameters)
+            print(variable.name, variable_parameters)
             total_parameters += variable_parameters
         print(total_parameters)
 
