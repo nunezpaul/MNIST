@@ -52,17 +52,6 @@ class CNNModel(BasicModel):
         return img_embed
 
 
-class TrainLoss(TrainLoss):
-    def __init__(self, model, train_data, test_data=None):
-        super(TrainLoss, self).__init__(model, train_data, test_data=test_data)
-        self.model_params = CNNModel()
-
-
-class TrainRun(TrainRun):
-    def __init__(self, model, sess, load_dir, lr=0.001):
-        super(TrainRun, self).__init__(model, sess, load_dir, lr)
-
-
 if __name__ == '__main__':
     config = Config()
     with tf.Session() as sess:

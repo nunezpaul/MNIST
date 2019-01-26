@@ -107,3 +107,4 @@ venv.bak/
 .basic
 .CNN
 saved_models
+logs

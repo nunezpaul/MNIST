@@ -3,8 +3,6 @@ import tensorflow as tf
 import os
 import uuid
 
-from multiprocessing import cpu_count
-
 from config import Config
 from data_config import TestData, TrainData
 
@@ -21,14 +19,15 @@ class BasicModel(object):
         self.id = uuid.uuid4()
         self.name = 'basic'
         self.model_dir = os.path.abspath(__file__).split(os.path.basename(__file__))[0]
-        self.is_training = tf.placeholder_with_default(True, shape=())
+        self.is_training = tf.placeholder_with_default(True, shape=(), name='is_training')
+        tf.add_to_collection('Dropout_switch', self.is_training)
 
         self.dense1 = tf.layers.Dense(self.embed_dim, activation=tf.nn.relu, name='dense1')
         self.dense2 = tf.layers.Dense(self.num_classes, name='dense2')
 
     def _forward(self, img, check_shapes=True):
         # Create an embedding based on given image
-        with tf.name_scope('model') as scope:
+        with tf.name_scope('model',) as scope:
             flattened = tf.layers.flatten(img)
             layer_1 = self.dense1(flattened)
             layer_1_nl = tf.layers.dropout(layer_1, 0.8, training=self.is_training)
@@ -45,15 +44,14 @@ class BasicModel(object):
 
 class TrainLoss(object):
     def __init__(self, model, train_data, test_data=None):
-        self.data_init = [train_data.iter_init, test_data.iter_init]
+        self.data_init = [train_data.iter_init] + ([test_data.iter_init] if test_data is not None else [])
         self.model = model
         self.use_train_data = tf.placeholder_with_default(True, shape=(), name='use_train_data')
         self.use_placeholder = tf.placeholder_with_default(False, shape=(), name='use_placeholder')
-        self.outputs = self.eval(train_data, test_data)
+        self.outputs = self.eval(*self.create_data_switches(train_data, test_data))
         tf.add_to_collection('Placeholder_switch', self.use_placeholder)
 
-    def eval(self, train_data, test_data):
-        metrics = {}
+    def create_data_switches(self, train_data, test_data):
         img_ph, label_ph = self.create_placeholders(train_data)
 
         # Overwrite is_training in order to switch where the data is coming from
@@ -66,8 +64,11 @@ class TrainLoss(object):
                                  lambda: [img_ph, label_ph],
                                  lambda: [train_data.img, train_data.label])
 
+        return img, label
+
+    def eval(self, img, label):
+        metrics = {}
         # Loss will be on the negative log likelihood that the img embed belongs to the correct class
-        # img, label = data.img, data.label
         logits = self.model(img)
 
         # Determine the log loss and probability of positive sample
@@ -126,7 +127,7 @@ class TrainRun(object):
         id = self.train_loss.model.id
         name = self.train_loss.model.name
         for phase in phases:
-            tensorboard_dir = f'{base_dir}.{name}/{id}/{phase}'
+            tensorboard_dir = f'{base_dir}/logs/{name}/{id}/{phase}'
             self.writer[phase] = tf.summary.FileWriter(tensorboard_dir, tf.get_default_graph())
 
     def initialize(self, sess, load_dir=None):

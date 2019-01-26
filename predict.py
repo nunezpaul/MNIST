@@ -23,31 +23,41 @@ def get_test_data():
     return test_imgs, test_labels
 
 
-def make_prediction(imgs, sess, graph, label=None):
+def make_prediction(imgs, sess, graph, labels=None):
     use_placeholder = graph.get_tensor_by_name("use_placeholder:0")
-
+    is_training = graph.get_collection('Dropout_switch')[0]
     img_input = graph.get_collection('Inputs')[0]
     # label_input = graph.get_tensor_by_name('label_input:0')
 
     prediction = graph.get_tensor_by_name('prediction:0')
     sess.run(graph.get_collection('Iterator_init'))
-    predictions = sess.run(prediction, feed_dict={use_placeholder: True, img_input: imgs})
-    plot_results(imgs, predictions)
+    predictions, is_training = sess.run([prediction, is_training], feed_dict={use_placeholder: True,
+                                                  is_training: False,
+                                                  img_input: imgs})
+    plot_results(imgs, predictions, labels)
 
 
-def plot_results(imgs, predictions):
-    for img, prediction in zip(imgs, predictions):
-        print(prediction)
-        cv2.imshow('image', img)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+def plot_results(imgs, predictions, labels):
+    if labels is not None:
+        for img, prediction, label in zip(imgs, predictions, labels):
+            if prediction != label:
+                print(prediction, label)
+                cv2.imshow('image', img)
+                cv2.waitKey(0)
+                cv2.destroyAllWindows()
+    else:
+        for img, prediction in zip(imgs, predictions):
+            print(prediction)
+            cv2.imshow('image', img)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
 
 
 if __name__ == '__main__':
-    num = 7
-    model = 'CNN'
+    num = 3
+    model = 'basic'
     sess, graph = import_graph(f'saved_models/{model}_model_epoch_{num}')
     get_all_collection_keys(graph=graph)
     test_imgs, test_labels = get_test_data()
 
-    make_prediction(imgs=test_imgs, label=test_labels, sess=sess, graph=graph)
+    make_prediction(imgs=test_imgs, labels=test_labels, sess=sess, graph=graph)
