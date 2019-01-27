@@ -15,27 +15,29 @@ class CNNModel(BasicModel):
         self.pool_strides = 2
         self.img_size = list(self.img_size)
 
+        # Conv layers
+        self.conv1 = tf.layers.Conv2D(filters=self.filter1,
+                                      kernel_size=self.kernel_size,
+                                      padding='same',
+                                      activation=tf.nn.relu)
+        self.conv2 = tf.layers.Conv2D(filters=self.filter2,
+                                      kernel_size=self.kernel_size,
+                                      padding='same',
+                                      activation=tf.nn.relu)
+
     def _forward(self, img):
         # Reshape the image to include a channel
         img_expanded = tf.expand_dims(img, axis=-1)
 
-        # First convolution layer and pooling
-        conv1 = tf.layers.conv2d(
-            img_expanded,
-            filters=self.filter1,
-            kernel_size=self.kernel_size,
-            padding='same',
-            activation=tf.nn.relu)
-        pool1 = tf.layers.max_pooling2d(conv1, pool_size=self.pool_size, strides=self.pool_strides)
+        # First convolution and pool layer
+        with tf.name_scope('Conv1') as scope:
+            conv1 = self.conv1(img_expanded)
+            pool1 = tf.layers.max_pooling2d(conv1, pool_size=self.pool_size, strides=self.pool_strides)
 
         # Second convolution layer and pooling
-        conv2 = tf.layers.conv2d(
-            pool1,
-            filters=self.filter2,
-            kernel_size=self.kernel_size,
-            padding='same',
-            activation=tf.nn.relu)
-        pool2 = tf.layers.max_pooling2d(conv2, pool_size=self.pool_size, strides=self.pool_strides)
+        with tf.name_scope('Conv2') as scope:
+            conv2 = self.conv2(pool1)
+            pool2 = tf.layers.max_pooling2d(conv2, pool_size=self.pool_size, strides=self.pool_strides)
 
         # Give pool2 to original embedding function of basic_model
         img_embed = super(CNNModel, self)._forward(img=pool2, check_shapes=False)

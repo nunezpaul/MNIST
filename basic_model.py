@@ -1,6 +1,7 @@
 import tensorflow as tf
 
 import os
+import sys
 import uuid
 
 from config import Config
@@ -96,16 +97,17 @@ class TrainLoss(object):
         return [img, label]
 
     def create_placeholders(self, dataset):
-        img_ph = tf.placeholder_with_default(tf.cast(tf.random_uniform(shape=[64, 28, 28], maxval=255), tf.uint8),
-                                             name='img_input', shape=[None, 28, 28])
-        label_ph = tf.placeholder_with_default(tf.cast(tf.random_uniform(shape=[64, ], maxval=255), tf.uint8),
-                                               name='label_input', shape=[None, ])
+        with tf.name_scope('placeholders') as scope:
+            img_ph = tf.placeholder_with_default(tf.cast(tf.random_uniform(shape=[64, 28, 28], maxval=255), tf.uint8),
+                                                 name='img_input', shape=[None, 28, 28])
+            label_ph = tf.placeholder_with_default(tf.cast(tf.random_uniform(shape=[64, ], maxval=255), tf.uint8),
+                                                   name='label_input', shape=[None, ])
 
-        tf.add_to_collection(name='Inputs', value=img_ph)
-        tf.add_to_collection(name='Inputs', value=label_ph)
+            tf.add_to_collection(name='Inputs', value=img_ph)
+            tf.add_to_collection(name='Inputs', value=label_ph)
 
-        img_ph = dataset._img_preprocessing(img_ph)
-        label_ph = dataset._label_preprocessing(label_ph)
+            img_ph = dataset._img_preprocessing(img_ph)
+            label_ph = dataset._label_preprocessing(label_ph)
 
         return [img_ph, label_ph]
 
@@ -128,7 +130,7 @@ class TrainRun(object):
         name = self.train_loss.model.name
         for phase in phases:
             tensorboard_dir = f'{base_dir}/logs/{name}/{id}/{phase}'
-            self.writer[phase] = tf.summary.FileWriter(tensorboard_dir, tf.get_default_graph())
+            self.writer[phase] = tf.summary.FileWriter(tensorboard_dir, graph=tf.get_default_graph())
 
     def initialize(self, sess, load_dir=None):
         self.count_number_trainable_parameters()
@@ -145,13 +147,19 @@ class TrainRun(object):
         print('Initialized Values: \n{init_vals}'.format(init_vals=init_vals))
 
     def train(self, sess, save_dir='saved_models'):
+        count = 0
+        total = 60 * 10 ** 3 // 64
         try:
             for step in range(60 * 10**3):
                 _ = sess.run([self.train_op])
                 self.step += 1
-                if step % (60 * 10 ** 3 // 64) == 0:
+                count += 1
+                if count % 10 == 0:
+                    self.print_progress(count, total)
+                if step % (total) == 0:
+                    count = 0
                     self.epochs += 1
-                    print(f'Evaluating metrics at epoch {self.epochs}...')
+                    print(f'\nEvaluating metrics at epoch {self.epochs}...')
                     self.report_metrics(sess)
         except KeyboardInterrupt:
             print('Saving graph params!')
@@ -177,6 +185,18 @@ class TrainRun(object):
         print('Train Correct {train} \t Test Correct {test}'.format(
             train=train_outputs['label'][:10], test=test_outputs['label'][:10]))
 
+    def print_progress(self, count, total):
+        # Percentage completion.
+        pct_complete = float(count) / total
+
+        # Status-message.
+        # Note the \r which means the line should overwrite itself.
+        msg = "\r- Progress: {0:.1%}".format(pct_complete)
+
+        # Print it.
+        sys.stdout.write(msg)
+        sys.stdout.flush()
+
     def tensorboard_logger(self, writer, tag, value):
         summary = tf.Summary(value=[tf.Summary.Value(tag=tag, simple_value=value)])
         writer.add_summary(summary, self.step)
@@ -192,7 +212,7 @@ class TrainRun(object):
                 variable_parameters *= dim.value
             print(variable.name, variable_parameters)
             total_parameters += variable_parameters
-        print(total_parameters)
+        print(f'total number of trainable parameters: {total_parameters}')
 
 
 if __name__ == '__main__':

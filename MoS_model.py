@@ -1,10 +1,11 @@
 import tensorflow as tf
 
 from basic_model import BasicModel, TrainLoss, TrainRun
+from cnn_model import CNNModel
 from config import Config
 
 
-class MOSModel(BasicModel):
+class MOSModel(CNNModel):
     def __init__(self):
         super(MOSModel, self).__init__()
         self.num_components = 3
